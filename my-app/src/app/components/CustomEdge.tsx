@@ -25,8 +25,8 @@ const CustomEdge = ({sourceX,sourceY,targetX,targetY,id,style,data}: CustomEdgeP
             position: 'absolute',
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             pointerEvents: 'all',
-          }}
-            className = "text-xs">{data?.weight}
+          }}>
+            <div className = "font-semibold text-xs bg-neutral-600 rounded-full">{data?.weight}</div>
           </div>
         </EdgeLabelRenderer>
     </>

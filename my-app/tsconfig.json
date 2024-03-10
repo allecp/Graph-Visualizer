@@ -3,6 +3,7 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
+    "target": "ES2015",
     "allowImportingTsExtensions": true,
     "strict": true,
     "noEmit": true,
