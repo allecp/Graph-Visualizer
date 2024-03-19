@@ -1,10 +1,11 @@
 
-import React, { useCallback } from 'react';
-import {useState} from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import 'reactflow/dist/style.css';
 import GraphNode from './GraphNode.tsx';
-import {ModeType} from '../types.ts'
+import Toolbar from './Toolbar.tsx'
+import {ModeType, NodeInfo,AdjInfo} from '../types.ts'
 import CustomEdge from './CustomEdge.tsx';
+import Graphs from '../graphs.ts'
 
 import ReactFlow, {
   addEdge,
@@ -16,67 +17,52 @@ import ReactFlow, {
   OnNodesChange,
   OnEdgesChange,
   OnConnect,
-  EdgeTypesWrapped
+  EdgeTypesWrapped,
+  useReactFlow,
+  ReactFlowProvider
 } from 'reactflow';
- 
-//import CustomNode from './CustomNode';
+import next from 'next';
 
 
-const initialNodes: Node[] = [
-  {id: '0', type: 'graphNode', position: {x:0, y: 0}, data : {value: '0', processed:false}},
-   {id: '1', type: 'graphNode', position: {x:-50, y: 50}, data : {value: 'inf', processed:false}},
-   {id: '2', type: 'graphNode', position: {x:50, y: 50}, data : {value: 'inf',processed:false}},
-   {id: '3', type: 'graphNode', position: {x:50, y: 100}, data : {value: 'inf', processed:false}},
-   {id: '4', type: 'graphNode', position: {x:-50, y: 100}, data : {value: 'inf', processed:false}}
-];
- 
 
-const initialEdges: Edge[] = [
-  {id:"0",type: "customEdge", sourceHandle: "s", source: '0', target: "1", targetHandle: "t", style: {stroke:"white"}, data:{weight:2}},
-  {id:"1",type: "customEdge", sourceHandle: "s", source: '0', target: "2", targetHandle: "t", style: {stroke:"white"}, data:{weight:10}},
-  {id:"2",type: "customEdge", sourceHandle: "s", source: '1', target: "2", targetHandle: "t", style: {stroke:"white"}, data:{weight:20}},
-  {id:"3",type: "customEdge", sourceHandle: "s", source: '1', target: "3", targetHandle: "t", style: {stroke:"white"}, data:{weight:15}},
-  {id:"4",type: "customEdge", sourceHandle: "s", source: '2', target: "3", targetHandle: "t", style: {stroke:"white"}, data:{weight:1}},
-  {id:"5",type: "customEdge", sourceHandle: "s", source: '1', target: "4", targetHandle: "t", style: {stroke:"white"}, data:{weight:4}},
-  {id:"6",type: "customEdge", sourceHandle: "s", source: '4', target: "3", targetHandle: "t", style: {stroke:"white"}, data:{weight:5}},
-  {id:"7",type: "customEdge", sourceHandle: "s", source: '4', target: "2", targetHandle: "t", style: {stroke:"white"}, data:{weight:6}}
-];
-
+/*
 const fitViewOptions: FitViewOptions = {
   padding: 0.2,
 };
 
-/*
+
 const defaultEdgeOptions: DefaultEdgeOptions = {
   animated: true,
 };
  */
 
+// set node and edge types to the custom nodes/edges
 const nodeTypes = { graphNode: GraphNode }
 const edgeTypes = {
   customEdge: CustomEdge
 }
 
+// hides reactflow icon
 const proOptions = { hideAttribution: true };
+const initialNodes = Graphs[2].nodes;
+const initialEdges = Graphs[2].edges;
+
+function initCostArr(graphNum: number){
+  return Graphs[graphNum].nodes.map((node) => ({id: node.id, cost: node.data.value === '0' ? 0 : Number.MAX_SAFE_INTEGER,used: false}));
+}
 
 const Djikstras = () => {
 
-  function initCostArr(): number[]{
 
-    let costArr = new Array(nodes.length).fill(Number.MAX_SAFE_INTEGER);
-    costArr[0] = 0;
-
-    return costArr;
-  }
-
-  let intervalId;
   const [nodes, setNodes] = useState<Node[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
-  const [costArr,updateCostArr] = useState<number[]>(initCostArr())
-  const [currentNode,setCurrentNode] = useState('0');
-  
-  const [mode,setMode] = useState<ModeType>('');
- 
+  const [costArr,setCostArr] = useState<NodeInfo[]>(initCostArr(2));
+  const [graph,setGraph] = useState<number>(2)
+  const [currentNode,setCurrentNode] = useState<{id: string, isActive: boolean}>({id: '0',isActive: false});
+  const intervalId = useRef<string | number | undefined | NodeJS.Timeout>(undefined);
+  const [run,setRun] = useState(false);
+  const [speed,setSpeed] = useState('500')
+
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
     [setNodes],
@@ -90,30 +76,166 @@ const Djikstras = () => {
     [setEdges],
   );
 
-  
+  useEffect(() => {
+    if (run){
+      iteration();
+    }
+    return () => clearInterval(intervalId.current);
+  },[currentNode,run])
 
 
 
-  
+  function handleNode(){
+    let min = Number.MAX_SAFE_INTEGER, minId = '-1';
+
+    costArr.forEach((nodeInfo) => { 
+      if (nodeInfo.cost < min && !nodeInfo.used){
+        min = nodeInfo.cost;
+        minId = nodeInfo.id;
+      }
+    });
+
+    let newCostArr = costArr.map((nodeInfo) => nodeInfo.id !== minId ? {...nodeInfo} : {...nodeInfo,used:true})
+    let newNodes = nodes.map((node) => node.id !== minId ? {...node} : {...node,data: {...node.data, processed:true}});
+    let newEdges = edges.map((edge) => ({...edge,style:{stroke: 'white'}}));
+
+    intervalId.current = setInterval(() => {
+      setNodes(newNodes);
+      setCostArr(newCostArr);
+      setEdges(newEdges);
+      setCurrentNode({isActive: true, id: minId});
+    },1000 - parseInt(speed))
+  }
+
+  function handleEdges(){
+    let nextEdgeIndex = -1;
+        for (let j = 0; j < edges.length; j++){
+            if (edges[j].style?.stroke !== 'orange' && (edges[j].source === currentNode.id || edges[j].target === currentNode.id)){
+              nextEdgeIndex = j;
+              break;
+            }
+        }
+
+      // all adjacent edges are highlighted, therefore switch state to isActive to switch back to processing a new node
+      if (nextEdgeIndex === -1){
+        intervalId.current = setInterval(()=>{
+          setCurrentNode({id: currentNode.id,isActive:false})
+        },1000 - parseInt(speed));
+
+        return;
+      };
+
+      const nextEdgeWeight = edges[nextEdgeIndex].data.weight;
+
+      let newEdgeArr = edges.map((edge) => nextEdgeIndex.toString() === edge.id ? {...edge,style: {stroke: "orange"}} : {...edge});
+
+      // string id of target node from src->target
+      const targetId = edges[nextEdgeIndex].target, sourceId = currentNode.id;
+      const newCostArr = costArr.map((element) => {
+
+        const totalCost = costArr[parseInt(sourceId)].cost + nextEdgeWeight;
+        if (element.id === targetId && totalCost < costArr[parseInt(targetId)].cost){
+            return {...element,cost:totalCost}
+        }
+        return {...element};
+      });
+
+      const newNodes = nodes.map((node,index) => {
+        const newValue = newCostArr[index].cost === Number.MAX_SAFE_INTEGER ? "?" : newCostArr[index].cost.toString();
+        return {...node,data: {...node.data, value: newValue}};
+      });
+
+      intervalId.current = setInterval(() => {
+        setNodes(newNodes);
+        setCostArr(newCostArr);
+        setEdges(newEdgeArr);
+        setCurrentNode({...currentNode});
+      },1000 - parseInt(speed))
+  }
+
+  // dictates the state of each iteration of djikstra algorithm
+  // controls the nodes that change colors and edges as the algorithm executes based off state
+  function iteration(){
+
+    let processedNodes = 0
+
+    nodes.forEach((node) => {
+      if (node.data.processed){
+        processedNodes++;
+      }
+    });
+
+    if (processedNodes === nodes.length){
+      return;
+    }
+    else if (!currentNode.isActive){
+      handleNode()
+    }
+    else{
+      handleEdges()
+    }
+}
+
+  // kick off the algorithm after the user clicks the start button
+  // trigger the useEffect function by calling the setActiveEdgeOrNode with the initial state
+  // set runAlgo.current = true 
+  function startHandler(){
+    setRun(true);
+    setCurrentNode({...currentNode});
+  }  
+
+  // stop animation
+  // reset nodes and edges to desired nodes/edges
+  function changeGraphHandler(){
+    setRun(false);
+    const nextGraph = (graph + 1) % Graphs.length;
+    setGraph(nextGraph);
+    setNodes(Graphs[nextGraph].nodes.map((node) => ({...node})));
+    setEdges(Graphs[nextGraph].edges.map((edge) => ({...edge})));
+    setCostArr(initCostArr(nextGraph));
+    setCurrentNode({id: '0', isActive: false})
+
+  }
+
+  function resetHandler(){
+    setRun(false);
+    setNodes(Graphs[graph].nodes.map((node) => ({...node})));
+    setEdges(Graphs[graph].edges.map((edge) => ({...edge})));
+    setCostArr(initCostArr(graph));
+    setCurrentNode({id: '0', isActive: false})
+  }
+
+  function pauseHandler(){
+    setRun(false);
+  }
 
   return (
       <div className = "w-screen h-5/6 flex-col items-center">
-        <ReactFlow
-          nodes = {nodes}
-          edges = {edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          proOptions = {proOptions}
-          //onConnect={onConnect}
-          nodeTypes = {nodeTypes}
-          edgeTypes={edgeTypes}
-          fitView = {true}
+        <ReactFlowProvider>
+          <ReactFlow
+            nodes = {nodes}
+            edges = {edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            proOptions = {proOptions}
+            //onConnect={onConnect}
+            nodeTypes = {nodeTypes}
+            edgeTypes={edgeTypes}
+            onInit={(instance) => instance.fitView()}
+          />
+        <Toolbar 
+          startHandler = {startHandler} 
+          changeHandler = {changeGraphHandler} 
+          resetHandler = {resetHandler}
+          pauseHandler = {pauseHandler}
+          run = {run}
+          speed = {speed}
+          setSpeed = {setSpeed}
         />
-        <div className = "w-screen flex flex-row justify-center">
-              <button>Hello ruby</button>
-        </div>
+        </ReactFlowProvider>
     </div>
   )
 }
 
-export default Djikstras
+
+export default Djikstras;
